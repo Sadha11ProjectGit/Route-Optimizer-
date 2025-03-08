@@ -1,204 +1,173 @@
-import java.sql.*;
+package Arrays;
+
+
 import java.util.*;
-import java.util.concurrent.TimeUnit;
 
-public class DeliveryRouteOptimizer {
+public class AdvancedRoutingSystem {
 
-    private static final String URL = "jdbc:mysql://localhost:3306/delivery_routes";
-    private static final String USER = "root";
-    private static final String PASSWORD = "password";  // Update with your DB password
+    // Location class to represent each location
+    static class Location {
+        int id;
+        String name;
 
-    private Connection connection;
-
-    public DeliveryRouteOptimizer() throws SQLException {
-        // Establish connection to the database
-        this.connection = DriverManager.getConnection(URL, USER, PASSWORD);
-    }
-
-    // Function to get all locations from the database
-    public Map<Integer, String> getLocations() throws SQLException {
-        Map<Integer, String> locations = new HashMap<>();
-        String query = "SELECT id, name FROM locations";
-
-        try (Statement stmt = connection.createStatement();
-             ResultSet rs = stmt.executeQuery(query)) {
-
-            while (rs.next()) {
-                locations.put(rs.getInt("id"), rs.getString("name"));
-            }
-        }
-
-        return locations;
-    }
-
-    // Function to get all paths from the database (with dynamic traffic data)
-    public Map<Integer, List<Edge>> getPaths(boolean realTimeTraffic) throws SQLException {
-        Map<Integer, List<Edge>> graph = new HashMap<>();
-        String query = "SELECT from_location, to_location, distance, traffic_factor FROM paths";
-
-        // Simulate real-time traffic updates (adjust distances based on traffic factors)
-        try (Statement stmt = connection.createStatement();
-             ResultSet rs = stmt.executeQuery(query)) {
-
-            while (rs.next()) {
-                int from = rs.getInt("from_location");
-                int to = rs.getInt("to_location");
-                double distance = rs.getDouble("distance");
-                double trafficFactor = rs.getDouble("traffic_factor");  // factor for traffic delays
-
-                // If real-time traffic data is enabled, adjust the distance accordingly
-                if (realTimeTraffic) {
-                    distance *= trafficFactor;  // Increase distance if traffic is bad
-                }
-
-                graph.computeIfAbsent(from, k -> new ArrayList<>()).add(new Edge(to, distance));
-                graph.computeIfAbsent(to, k -> new ArrayList<>()).add(new Edge(from, distance)); // assuming undirected graph
-            }
-        }
-
-        return graph;
-    }
-
-    // Dijkstra's algorithm to find the shortest path from a start location to all other locations
-    public Map<Integer, Double> dijkstra(Map<Integer, List<Edge>> graph, int start, String criterion) {
-        Map<Integer, Double> distances = new HashMap<>();
-        PriorityQueue<Vertex> pq = new PriorityQueue<>(Comparator.comparingDouble(v -> v.distance));
-
-        for (Integer node : graph.keySet()) {
-            distances.put(node, Double.MAX_VALUE);
-        }
-        distances.put(start, 0.0);
-        pq.add(new Vertex(start, 0.0));
-
-        while (!pq.isEmpty()) {
-            Vertex current = pq.poll();
-
-            // If the shortest distance has been found, no need to process it further
-            if (current.distance > distances.get(current.id)) {
-                continue;
-            }
-
-            // Update distances for adjacent vertices
-            for (Edge neighbor : graph.get(current.id)) {
-                double newDist = current.distance + neighbor.distance;
-
-                // Implement different optimization criteria based on the parameter (e.g., least time, least cost, etc.)
-                if ("cost".equals(criterion)) {
-                    newDist += 1.5 * neighbor.distance; // example of cost optimization (e.g., fuel cost)
-                } else if ("time".equals(criterion)) {
-                    newDist += 0.5 * neighbor.distance; // example of time optimization (e.g., based on road type)
-                }
-
-                if (newDist < distances.get(neighbor.to)) {
-                    distances.put(neighbor.to, newDist);
-                    pq.add(new Vertex(neighbor.to, newDist));
-                }
-            }
-        }
-
-        return distances;
-    }
-
-    // Function to simulate delivery window optimization (optimize delivery times)
-    public Map<Integer, Double> optimizeForDeliveryWindows(Map<Integer, List<Edge>> graph, int start, Map<Integer, String> deliveryWindows) {
-        Map<Integer, Double> distances = new HashMap<>();
-        PriorityQueue<Vertex> pq = new PriorityQueue<>(Comparator.comparingDouble(v -> v.distance));
-
-        for (Integer node : graph.keySet()) {
-            distances.put(node, Double.MAX_VALUE);
-        }
-        distances.put(start, 0.0);
-        pq.add(new Vertex(start, 0.0));
-
-        while (!pq.isEmpty()) {
-            Vertex current = pq.poll();
-
-            if (current.distance > distances.get(current.id)) {
-                continue;
-            }
-
-            for (Edge neighbor : graph.get(current.id)) {
-                double newDist = current.distance + neighbor.distance;
-                // Modify the path selection based on delivery time windows
-                if (deliveryWindows.containsKey(neighbor.to)) {
-                    String window = deliveryWindows.get(neighbor.to);
-                    if (newDist > parseTimeFromWindow(window)) {
-                        continue; // Skip paths outside of delivery window
-                    }
-                }
-                if (newDist < distances.get(neighbor.to)) {
-                    distances.put(neighbor.to, newDist);
-                    pq.add(new Vertex(neighbor.to, newDist));
-                }
-            }
-        }
-
-        return distances;
-    }
-
-    // Helper method to simulate parsing of time windows (e.g., "09:00-12:00")
-    private double parseTimeFromWindow(String timeWindow) {
-        // Parse the time window and return the time as a double (e.g., 9.0 for 9:00 AM)
-        String[] times = timeWindow.split("-");
-        return Double.parseDouble(times[0].substring(0, 2));  // Simplified for example
-    }
-
-    public static void main(String[] args) {
-        try {
-            DeliveryRouteOptimizer optimizer = new DeliveryRouteOptimizer();
-
-            // Load locations and paths from the database (with real-time traffic data)
-            Map<Integer, String> locations = optimizer.getLocations();
-            Map<Integer, List<Edge>> graph = optimizer.getPaths(true); // Enable real-time traffic data
-
-            // Display all locations
-            System.out.println("Locations:");
-            locations.forEach((id, name) -> System.out.println(id + ": " + name));
-
-            // Assume the start point is location with id 1 (just an example)
-            int startLocation = 1;
-
-            // Get the shortest paths based on different optimization criteria (e.g., least cost, least time)
-            Map<Integer, Double> shortestPaths = optimizer.dijkstra(graph, startLocation, "cost");
-            System.out.println("\nShortest paths from location " + locations.get(startLocation) + " based on cost optimization:");
-            shortestPaths.forEach((id, distance) ->
-                    System.out.println("To " + locations.get(id) + ": " + distance + " units"));
-
-            // Assume delivery windows (e.g., "09:00-12:00") are available for locations
-            Map<Integer, String> deliveryWindows = new HashMap<>();
-            deliveryWindows.put(2, "09:00-12:00");
-            deliveryWindows.put(3, "14:00-17:00");
-
-            // Optimize routes based on delivery windows
-            Map<Integer, Double> deliveryOptimizedPaths = optimizer.optimizeForDeliveryWindows(graph, startLocation, deliveryWindows);
-            System.out.println("\nDelivery optimized paths from location " + locations.get(startLocation) + ":");
-            deliveryOptimizedPaths.forEach((id, distance) ->
-                    System.out.println("To " + locations.get(id) + ": " + distance + " units"));
-
-        } catch (SQLException e) {
-            e.printStackTrace();
+        public Location(int id, String name) {
+            this.id = id;
+            this.name = name;
         }
     }
 
-    // Helper class to represent edges in the graph
-    static class Edge {
+    // Path class to represent a path between two locations
+    static class Path {
+        int from;
         int to;
-        double distance;
+        double distance; // Base distance
+        double trafficFactor; // Traffic impact (1.0 = no delay)
+        double weatherImpact; // Weather impact (1.0 = clear, >1 = adverse)
+        double elevationImpact; // Elevation (1.0 = flat)
+        double hazardRisk; // Hazard risk (1.0 = no risk)
 
-        public Edge(int to, double distance) {
+        public Path(int from, int to, double distance, double trafficFactor, double weatherImpact, double elevationImpact, double hazardRisk) {
+            this.from = from;
             this.to = to;
             this.distance = distance;
+            this.trafficFactor = trafficFactor;
+            this.weatherImpact = weatherImpact;
+            this.elevationImpact = elevationImpact;
+            this.hazardRisk = hazardRisk;
+        }
+
+        // Adjusted cost calculation considering multiple factors
+        public double getAdjustedCost() {
+            return distance * (1 + trafficFactor + weatherImpact + elevationImpact + hazardRisk);
         }
     }
 
-    // Helper class to represent vertices in the priority queue
-    static class Vertex {
-        int id;
-        double distance;
+    // Dijkstra-based routing with multi-factor cost
+    public static Map<Integer, Double> findOptimalRoute(Map<Integer, Location> locations, List<Path> paths, int startId, boolean considerTraffic, boolean considerWeather, boolean considerHazards, boolean considerElevation) {
+        Map<Integer, Double> distances = new HashMap<>();
+        Map<Integer, Location> locationById = new HashMap<>(locations); // Map location by id
+        PriorityQueue<Location> pq = new PriorityQueue<>(Comparator.comparingDouble(loc -> distances.get(loc.id))); // Compare locations by distance
+        Map<Integer, Boolean> visited = new HashMap<>();
 
-        public Vertex(int id, double distance) {
-            this.id = id;
-            this.distance = distance;
+        // Initialize distances for all locations
+        for (Location loc : locations.values()) {
+            distances.put(loc.id, Double.MAX_VALUE);  // Initialize all distances to infinity
         }
+        distances.put(startId, 0.0);  // Set the start location's distance to 0
+        pq.add(locationById.get(startId));  // Add the start location to the priority queue
+
+        while (!pq.isEmpty()) {
+            Location currentLocation = pq.poll();
+            int currentId = currentLocation.id;
+
+            // Skip already visited locations
+            if (visited.containsKey(currentId)) {
+                continue;
+            }
+            visited.put(currentId, true);
+
+            // Process adjacent locations
+            for (Path path : paths) {
+                if (path.from == currentId || path.to == currentId) {
+                    int nextId = (path.from == currentId) ? path.to : path.from;
+
+                    double adjustedCost = path.getAdjustedCost();
+
+                    // Adjust cost for dynamic factors
+                    if (considerTraffic) {
+                        adjustedCost += predictTraffic(path);
+                    }
+                    if (considerWeather) {
+                        adjustedCost += path.weatherImpact;
+                    }
+                    if (considerHazards) {
+                        adjustedCost += path.hazardRisk;
+                    }
+                    if (considerElevation) {
+                        adjustedCost += path.elevationImpact;
+                    }
+
+                    // Update the distance if the new path is shorter
+                    if (distances.get(currentId) + adjustedCost < distances.get(nextId)) {
+                        distances.put(nextId, distances.get(currentId) + adjustedCost);
+                        pq.add(locationById.get(nextId));  // Add updated location to the queue
+                    }
+                }
+            }
+        }
+
+        return distances;
+    }
+
+    // Simulate traffic prediction based on past data (simplified)
+    private static double predictTraffic(Path path) {
+        return path.trafficFactor > 1.5 ? 0.2 * path.distance : 0.0;  // More traffic adds extra time
+    }
+
+    // Simulate weather impact calculation
+    private static double getWeatherImpact(String weatherCondition) {
+        switch (weatherCondition) {
+            case "rain": return 0.3;
+            case "snow": return 0.6;
+            default: return 0.0; // No impact for clear weather
+        }
+    }
+
+    // Hazard detection function
+    private static double getHazardRisk(String hazardCondition) {
+        switch (hazardCondition) {
+            case "high_risk": return 0.4;
+            case "moderate_risk": return 0.2;
+            default: return 0.0; // No risk
+        }
+    }
+
+    // Elevation adjustment function (simulate road elevation impact)
+    private static double getElevationImpact(String elevationType) {
+        switch (elevationType) {
+            case "hilly": return 0.3;
+            case "mountainous": return 0.5;
+            default: return 0.0; // Flat terrain has no impact
+        }
+    }
+
+    // Main method to test routing
+    public static void main(String[] args) {
+        // Locations
+        Map<Integer, Location> locations = new HashMap<>();
+        locations.put(1, new Location(1, "A"));
+        locations.put(2, new Location(2, "B"));
+        locations.put(3, new Location(3, "C"));
+        locations.put(4, new Location(4, "D"));
+
+        // Paths (with traffic, weather, elevation, hazard risk)
+        List<Path> paths = new ArrayList<>();
+        paths.add(new Path(1, 2, 5.0, 0.2, getWeatherImpact("rain"), getElevationImpact("flat"), getHazardRisk("no_risk"))); // A to B
+        paths.add(new Path(2, 3, 10.0, 0.3, getWeatherImpact("snow"), getElevationImpact("hilly"), getHazardRisk("high_risk"))); // B to C
+        paths.add(new Path(3, 4, 7.0, 0.1, getWeatherImpact("clear"), getElevationImpact("mountainous"), getHazardRisk("moderate_risk"))); // C to D
+        paths.add(new Path(1, 4, 15.0, 0.4, getWeatherImpact("rain"), getElevationImpact("flat"), getHazardRisk("no_risk"))); // A to D
+
+        // Testing with all factors considered
+        Map<Integer, Double> route = findOptimalRoute(locations, paths, 1, true, true, true, true);
+
+        // Output the optimized route distances considering all factors
+        System.out.println("Optimized route distances (with all factors considered):");
+        route.forEach((id, distance) -> {
+            System.out.println("Location " + locations.get(id).name + ": " + distance + " units");
+        });
+
+        // Testing with no hazard consideration
+        Map<Integer, Double> routeWithoutHazards = findOptimalRoute(locations, paths, 1, true, true, false, true);
+        System.out.println("\nOptimized route distances (without hazards considered):");
+        routeWithoutHazards.forEach((id, distance) -> {
+            System.out.println("Location " + locations.get(id).name + ": " + distance + " units");
+        });
+
+        // Testing with no traffic or weather consideration
+        Map<Integer, Double> routeWithoutTrafficWeather = findOptimalRoute(locations, paths, 1, false, false, true, true);
+        System.out.println("\nOptimized route distances (without traffic or weather considered):");
+        routeWithoutTrafficWeather.forEach((id, distance) -> {
+            System.out.println("Location " + locations.get(id).name + ": " + distance + " units");
+        });
     }
 }
